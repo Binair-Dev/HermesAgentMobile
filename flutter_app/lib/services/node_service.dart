@@ -258,11 +258,16 @@ class NodeService {
     ));
     _log('[NODE] Paired and connected');
 
-    // Send capabilities advertisement
+    // Send capabilities advertisement — include both 'capabilities' (legacy)
+    // and 'commands' (matching the connect frame format) so the gateway can
+    // discover node commands regardless of which field it checks (#56).
     final capabilities = _capabilityHandlers.keys.toList();
+    final caps = capabilities.map((c) => c.split('.').first).toSet().toList();
     _ws.send(NodeFrame.event('node.capabilities', {
       'deviceId': _identity.deviceId,
       'capabilities': capabilities,
+      'commands': capabilities,
+      'caps': caps,
     }));
   }
 

@@ -34,7 +34,6 @@ class AiProvider {
       'claude-sonnet-4-20250514',
       'claude-opus-4-20250514',
       'claude-haiku-4-20250506',
-      'claude-3-5-sonnet-20241022',
     ],
     apiKeyHint: 'sk-ant-...',
   );

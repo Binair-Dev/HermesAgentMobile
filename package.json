@@ -1,6 +1,6 @@
 {
   "name": "openclaw-termux",
-  "version": "1.7.3",
+  "version": "1.8.6",
   "description": "OpenClaw AI Gateway for Android Termux with Bionic Bypass",
   "main": "lib/index.js",
   "type": "module",
@@ -34,7 +34,7 @@
     "url": "https://github.com/mithun50/openclaw-termux/issues"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "os": [
     "android",

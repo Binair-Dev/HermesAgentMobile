@@ -66,6 +66,10 @@ class GatewayService {
       }
     } catch (_) {}
 
+    // Repair corrupted config before gateway start (#88).
+    // This fixes the "Invalid input: expected object, received string" crash loop.
+    await _repairConfigFile();
+
     final alreadyRunning = await NativeBridge.isGatewayRunning();
     if (alreadyRunning) {
       // Write allowCommands config so the next gateway restart picks it up,
@@ -137,9 +141,18 @@ const p = "/root/.openclaw/openclaw.json";
 let c = {};
 try { c = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
 if (!c.gateway) c.gateway = {};
+if (!c.gateway.mode) c.gateway.mode = "local";
 if (!c.gateway.nodes) c.gateway.nodes = {};
 c.gateway.nodes.denyCommands = [];
 c.gateway.nodes.allowCommands = $allowJson;
+// Fix config corruption: models entries must be objects, not strings (#83, #88)
+if (c.models && c.models.providers) {
+  for (const [pid, prov] of Object.entries(c.models.providers)) {
+    if (prov && Array.isArray(prov.models)) {
+      prov.models = prov.models.map(m => typeof m === "string" ? { id: m } : m);
+    }
+  }
+}
 fs.writeFileSync(p, JSON.stringify(c, null, 2));
 ''';
     var prootOk = false;
@@ -167,15 +180,94 @@ fs.writeFileSync(p, JSON.stringify(c, null, 2));
         }
         config.putIfAbsent('gateway', () => <String, dynamic>{});
         final gw = config['gateway'] as Map<String, dynamic>;
+        // Ensure gateway.mode=local so the gateway starts without --allow-unconfigured (#93, #90)
+        gw.putIfAbsent('mode', () => 'local');
         gw.putIfAbsent('nodes', () => <String, dynamic>{});
         final nodes = gw['nodes'] as Map<String, dynamic>;
         nodes['denyCommands'] = <String>[];
         nodes['allowCommands'] = allowCommands;
+        // Fix config corruption: models entries must be objects, not strings (#83, #88)
+        _repairModelEntries(config);
         configFile.parent.createSync(recursive: true);
         configFile.writeAsStringSync(
           const JsonEncoder.withIndent('  ').convert(config),
         );
       } catch (_) {}
+    }
+  }
+
+  /// Repair openclaw.json on disk — fixes corrupted model entries and ensures
+  /// gateway.mode=local is set. Called on init() before any gateway start (#88).
+  Future<void> _repairConfigFile() async {
+    try {
+      final filesDir = await NativeBridge.getFilesDir();
+      final configFile = File('$filesDir/rootfs/ubuntu/root/.openclaw/openclaw.json');
+      if (!configFile.existsSync()) return;
+      final content = configFile.readAsStringSync();
+      if (content.isEmpty) return;
+
+      Map<String, dynamic> config;
+      try {
+        config = Map<String, dynamic>.from(jsonDecode(content) as Map);
+      } catch (_) {
+        return; // Unparseable — _writeNodeAllowConfig will recreate it
+      }
+
+      bool modified = false;
+
+      // Ensure gateway.mode=local (#93, #90)
+      config.putIfAbsent('gateway', () => <String, dynamic>{});
+      final gw = config['gateway'] as Map<String, dynamic>;
+      if (!gw.containsKey('mode')) {
+        gw['mode'] = 'local';
+        modified = true;
+      }
+
+      // Fix model entries: strings → objects (#83, #88)
+      final models = config['models'] as Map<String, dynamic>?;
+      if (models != null) {
+        final providers = models['providers'] as Map<String, dynamic>?;
+        if (providers != null) {
+          for (final entry in providers.values) {
+            if (entry is Map<String, dynamic>) {
+              final modelsList = entry['models'];
+              if (modelsList is List) {
+                for (int i = 0; i < modelsList.length; i++) {
+                  if (modelsList[i] is String) {
+                    modelsList[i] = {'id': modelsList[i]};
+                    modified = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (modified) {
+        configFile.writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(config),
+        );
+      }
+    } catch (_) {}
+  }
+
+  /// Fix corrupted model entries: convert bare strings to {id: string} objects (#83, #88).
+  static void _repairModelEntries(Map<String, dynamic> config) {
+    final models = config['models'] as Map<String, dynamic>?;
+    if (models == null) return;
+    final providers = models['providers'] as Map<String, dynamic>?;
+    if (providers == null) return;
+    for (final entry in providers.values) {
+      if (entry is Map<String, dynamic>) {
+        final modelsList = entry['models'];
+        if (modelsList is List) {
+          entry['models'] = modelsList.map((m) {
+            if (m is String) return {'id': m};
+            return m;
+          }).toList();
+        }
+      }
     }
   }
 

@@ -61,14 +61,14 @@ class ProviderConfigService {
     required String apiKey,
     required String model,
   }) async {
-    final providerJson = jsonEncode({
-      'apiKey': apiKey,
-      'baseUrl': provider.baseUrl,
-      'models': [model],
-    });
-    final modelJson = jsonEncode(model);
     final providerIdJson = jsonEncode(provider.id);
+    final apiKeyJson = jsonEncode(apiKey);
+    final baseUrlJson = jsonEncode(provider.baseUrl);
+    final modelJson = jsonEncode(model);
 
+    // Build the provider object with the model as an object containing `id`,
+    // not a bare string. OpenClaw expects: models: [{ id: "model-name" }].
+    // Writing a bare string causes config validation failure (#83, #88).
     final script = '''
 const fs = require("fs");
 const p = "$_configPath";
@@ -76,11 +76,17 @@ let c = {};
 try { c = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
 if (!c.models) c.models = {};
 if (!c.models.providers) c.models.providers = {};
-c.models.providers[$providerIdJson] = $providerJson;
+c.models.providers[$providerIdJson] = {
+  apiKey: $apiKeyJson,
+  baseUrl: $baseUrlJson,
+  models: [{ id: $modelJson }]
+};
 if (!c.agents) c.agents = {};
 if (!c.agents.defaults) c.agents.defaults = {};
 if (!c.agents.defaults.model) c.agents.defaults.model = {};
 c.agents.defaults.model.primary = $modelJson;
+if (!c.gateway) c.gateway = {};
+if (!c.gateway.mode) c.gateway.mode = "local";
 fs.mkdirSync(require("path").dirname(p), { recursive: true });
 fs.writeFileSync(p, JSON.stringify(c, null, 2));
 ''';
@@ -117,13 +123,13 @@ fs.writeFileSync(p, JSON.stringify(c, null, 2));
       // Start fresh
     }
 
-    // Merge provider entry
+    // Merge provider entry — models must be objects with `id`, not bare strings (#83, #88).
     config['models'] ??= <String, dynamic>{};
     (config['models'] as Map<String, dynamic>)['providers'] ??= <String, dynamic>{};
     ((config['models'] as Map<String, dynamic>)['providers'] as Map<String, dynamic>)[providerId] = {
       'apiKey': apiKey,
       'baseUrl': baseUrl,
-      'models': [model],
+      'models': [{'id': model}],
     };
 
     // Set active model
@@ -131,6 +137,10 @@ fs.writeFileSync(p, JSON.stringify(c, null, 2));
     (config['agents'] as Map<String, dynamic>)['defaults'] ??= <String, dynamic>{};
     ((config['agents'] as Map<String, dynamic>)['defaults'] as Map<String, dynamic>)['model'] ??= <String, dynamic>{};
     (((config['agents'] as Map<String, dynamic>)['defaults'] as Map<String, dynamic>)['model'] as Map<String, dynamic>)['primary'] = model;
+
+    // Ensure gateway.mode is set (#93, #90)
+    config['gateway'] ??= <String, dynamic>{};
+    (config['gateway'] as Map<String, dynamic>)['mode'] ??= 'local';
 
     const encoder = JsonEncoder.withIndent('  ');
     await NativeBridge.writeRootfsFile(_configPath, encoder.convert(config));

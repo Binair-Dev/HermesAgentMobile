@@ -824,7 +824,15 @@ class BootstrapManager(
 
     fun installBionicBypass() {
         val bypassDir = File("$rootfsDir/root/.openclaw")
-        bypassDir.mkdirs()
+        if (!bypassDir.exists()) {
+            bypassDir.mkdirs()
+        }
+        // Verify directory was created — some devices fail silently (#94)
+        if (!bypassDir.exists()) {
+            // Retry with parent creation
+            bypassDir.parentFile?.mkdirs()
+            bypassDir.mkdir()
+        }
 
         // 1. CWD fix — proot's getcwd() syscall returns ENOSYS on Android 10+.
         //    process.cwd() is called by Node's CJS module resolver and npm.
@@ -1238,6 +1246,61 @@ require('/root/.openclaw/proot-compat.js');
         val existing = if (bashrc.exists()) bashrc.readText() else ""
         if (!existing.contains("bionic-bypass")) {
             bashrc.appendText("\n# OpenClaw Bionic Bypass\n$exportLine\n")
+        }
+
+        // Pre-seed openclaw.json with gateway.mode=local so the gateway
+        // doesn't reject startup with "set gateway.mode=local" (#93, #90).
+        val configFile = File(bypassDir, "openclaw.json")
+        if (!configFile.exists()) {
+            configFile.writeText("""
+{
+  "gateway": {
+    "mode": "local"
+  }
+}
+""".trimIndent())
+        } else {
+            // Repair existing config: ensure gateway.mode and fix model entries (#83, #88)
+            try {
+                val content = configFile.readText()
+                val json = org.json.JSONObject(content)
+                var modified = false
+                if (!json.has("gateway")) {
+                    json.put("gateway", org.json.JSONObject().put("mode", "local"))
+                    modified = true
+                } else {
+                    val gw = json.getJSONObject("gateway")
+                    if (!gw.has("mode")) {
+                        gw.put("mode", "local")
+                        modified = true
+                    }
+                }
+                // Fix model entries: strings → objects with id field (#83, #88)
+                if (json.has("models")) {
+                    val models = json.optJSONObject("models")
+                    val providers = models?.optJSONObject("providers")
+                    if (providers != null) {
+                        val keys = providers.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            val prov = providers.optJSONObject(key)
+                            val arr = prov?.optJSONArray("models")
+                            if (arr != null) {
+                                for (i in 0 until arr.length()) {
+                                    val item = arr.get(i)
+                                    if (item is String) {
+                                        arr.put(i, org.json.JSONObject().put("id", item))
+                                        modified = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (modified) {
+                    configFile.writeText(json.toString(2))
+                }
+            } catch (_: Exception) {}
         }
     }
 

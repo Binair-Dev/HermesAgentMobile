@@ -304,39 +304,57 @@ class GatewayService : Service() {
             gatewayProcess = null
         }
         emitLog("Gateway stopped by user")
+        val filesDir = applicationContext.filesDir.absolutePath
         Thread({
+            var pythonKilled = false
+
+            // 1) Read the inner Python gateway PID and kill it directly.
+            // Under Android proot, the child PID is visible from the host.
+            val pythonPid = try {
+                val pidFile = File("$filesDir/rootfs/ubuntu/root/.hermes/gateway.pid")
+                if (pidFile.exists()) pidFile.readText().trim() else null
+            } catch (_: Exception) {
+                null
+            }
+
+            if (!pythonPid.isNullOrEmpty()) {
+                try {
+                    Runtime.getRuntime().exec(arrayOf("kill", "-9", pythonPid))
+                } catch (_: Exception) {}
+
+                // 2) Wait 500ms and verify it is dead.
+                try { Thread.sleep(500) } catch (_: InterruptedException) {}
+
+                val isDead = try {
+                    val cmdline = File("/proc/$pythonPid/cmdline").readText()
+                    !cmdline.contains("python") && !cmdline.contains("gateway")
+                } catch (_: Exception) {
+                    true // /proc entry gone = dead
+                }
+
+                if (isDead) {
+                    pythonKilled = true
+                    emitLog("[INFO] Inner Python gateway killed (PID $pythonPid)")
+                } else {
+                    emitLog("[WARN] Failed to kill inner Python gateway (PID $pythonPid). Killing entire app.")
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    return@Thread
+                }
+            } else {
+                // No PID file — assume already dead or never started properly
+                pythonKilled = true
+            }
+
+            // 3) Now terminate the proot wrapper.
             procToStop?.let { proc ->
                 try {
-                    // 1) Graceful shutdown via SIGTERM so proot's --kill-on-exit
-                    // propagates to the inner Python process.
                     proc.destroy()
-
-                    // 2) Wait patiently for proot to clean up its children.
-                    var waited = 0
-                    while (proc.isAlive && waited < 8000) {
-                        Thread.sleep(200)
-                        waited += 200
+                    if (!proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                        proc.destroyForcibly()
                     }
-
-                    // 3) Only force-kill if it is STILL alive AND the PID still
-                    // belongs to the same process (avoid race with PID reuse).
-                    if (proc.isAlive) {
-                        val shouldKill = try {
-                            val pid = (Process::class.java.getDeclaredMethod("pid")
-                                .invoke(proc) as Number).toLong()
-                            val cmdline = File("/proc/$pid/cmdline")
-                                .readText()
-                            // If /proc entry is gone or belongs to something else,
-                            // do NOT send SIGKILL (PID reuse scenario).
-                            cmdline.contains("proot") || cmdline.contains("bash")
-                        } catch (_: Exception) {
-                            false // /proc gone = process already dead
-                        }
-                        if (shouldKill) {
-                            proc.destroyForcibly()
-                        }
-                    }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    try { proc.destroyForcibly() } catch (_: Exception) {}
+                }
             }
         }, "gateway-stop").apply { isDaemon = true }.start()
     }

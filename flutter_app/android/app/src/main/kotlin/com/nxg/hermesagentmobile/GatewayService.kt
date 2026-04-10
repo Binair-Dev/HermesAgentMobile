@@ -214,7 +214,7 @@ class GatewayService : Service() {
                 synchronized(lock) {
                     if (stopping) return@Thread
                     processStartTime = System.currentTimeMillis()
-                    gatewayProcess = pm.startProotProcess("cd /root/hermes-agent && source venv/bin/activate && python gateway/run.py")
+                    gatewayProcess = pm.startProotProcess("exec /root/hermes-agent/venv/bin/python /root/hermes-agent/gateway/run.py")
                 }
                 updateNotificationRunning()
                 emitLog("[INFO] Gateway process spawned")
@@ -322,18 +322,15 @@ class GatewayService : Service() {
         val procPid: Int?
         synchronized(lock) {
             stopping = true
-            restartCount = maxRestarts // Prevent auto-restart
+            restartCount = maxRestarts
             uptimeThread?.interrupt()
             uptimeThread = null
             watchdogThread?.interrupt()
             watchdogThread = null
-            // Interrupt the gateway thread in case it is sleeping during an
-            // auto-restart delay so it wakes up and sees stopping=true.
             gatewayThread?.interrupt()
             gatewayThread = null
             procToStop = gatewayProcess
             gatewayProcess = null
-            // Try to obtain the OS PID of the proot process before we lose the reference
             procPid = try {
                 val pidLong = Process::class.java.getDeclaredMethod("pid").invoke(procToStop) as? Long
                 pidLong?.toInt()
@@ -342,18 +339,39 @@ class GatewayService : Service() {
             }
         }
         emitLog("Gateway stopped by user")
+        val filesDir = applicationContext.filesDir.absolutePath
         Thread({
-            // 1) Kill all descendant processes (deepest first) so they don't become
-            // orphaned and survive after proot is killed.
-            procPid?.let { pid ->
-                val descendants = getAllDescendantPids(pid).sortedDescending()
-                descendants.forEach { childPid ->
-                    try {
-                        Runtime.getRuntime().exec("kill -9 $childPid")
-                    } catch (_: Exception) {}
+            // 1) Kill the inner Python gateway via its PID file.
+            try {
+                val pidFile = File("$filesDir/rootfs/ubuntu/root/.hermes/gateway.pid")
+                if (pidFile.exists()) {
+                    val pid = pidFile.readText().trim()
+                    if (pid.isNotEmpty()) {
+                        try {
+                            Runtime.getRuntime().exec(arrayOf("kill", "-9", pid))
+                        } catch (_: Exception) {}
+                    }
                 }
+            } catch (_: Exception) {}
+
+            // 2) Kill direct children of the proot wrapper.
+            procPid?.let { p ->
+                try {
+                    val reader = Runtime.getRuntime().exec(arrayOf("pgrep", "-P", p.toString()))
+                        .inputStream.bufferedReader()
+                    reader.readText().trim().split(Regex("\\s+"))
+                        .filter { it.isNotEmpty() }
+                        .forEach { childPid ->
+                            try {
+                                Runtime.getRuntime().exec(arrayOf("kill", "-9", childPid))
+                            } catch (_: Exception) {}
+                        }
+                } catch (_: Exception) {}
             }
-            // 2) Gracefully terminate proot via SIGTERM, then force-kill if needed.
+
+            try { Thread.sleep(400) } catch (_: InterruptedException) {}
+
+            // 3) Terminate the proot wrapper.
             procToStop?.let { proc ->
                 try {
                     proc.destroy()
@@ -364,7 +382,7 @@ class GatewayService : Service() {
                     try { proc.destroyForcibly() } catch (_: Exception) {}
                 }
             }
-        }, "gateway-stop").apply { isDaemon = true }.start()
+        }, "gateway-stop").apply { isDaemon = false }.start()
     }
 
     /** Watchdog: periodically checks if the proot process is alive.

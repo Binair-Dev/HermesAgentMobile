@@ -304,36 +304,41 @@ class GatewayService : Service() {
             gatewayProcess = null
         }
         emitLog("Gateway stopped by user")
-        val filesDir = applicationContext.filesDir.absolutePath
-        val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
         Thread({
-            // 1) Kill the inner Python gateway FROM INSIDE proot.
-            // This is the only reliable way because proot isolates PIDs.
-            try {
-                val pm = ProcessManager(filesDir, nativeLibDir)
-                pm.runInProotSync(
-                    "PID=\$(cat /root/.hermes/gateway.pid 2>/dev/null); " +
-                    "if [ -n \"\$PID\" ]; then kill -9 \$PID 2>/dev/null || true; fi; " +
-                    "rm -f /root/.hermes/gateway.pid; " +
-                    "pkill -9 -f 'gateway/run.py' 2>/dev/null || true",
-                    timeoutSeconds = 15
-                )
-            } catch (_: Exception) {}
-
-            try { Thread.sleep(500) } catch (_: InterruptedException) {}
-
-            // 2) Terminate the proot wrapper.
             procToStop?.let { proc ->
                 try {
+                    // 1) Graceful shutdown via SIGTERM so proot's --kill-on-exit
+                    // propagates to the inner Python process.
                     proc.destroy()
-                    if (!proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                        proc.destroyForcibly()
+
+                    // 2) Wait patiently for proot to clean up its children.
+                    var waited = 0
+                    while (proc.isAlive && waited < 8000) {
+                        Thread.sleep(200)
+                        waited += 200
                     }
-                } catch (_: Exception) {
-                    try { proc.destroyForcibly() } catch (_: Exception) {}
-                }
+
+                    // 3) Only force-kill if it is STILL alive AND the PID still
+                    // belongs to the same process (avoid race with PID reuse).
+                    if (proc.isAlive) {
+                        val shouldKill = try {
+                            val pid = (Process::class.java.getDeclaredMethod("pid")
+                                .invoke(proc) as Number).toLong()
+                            val cmdline = File("/proc/$pid/cmdline")
+                                .readText()
+                            // If /proc entry is gone or belongs to something else,
+                            // do NOT send SIGKILL (PID reuse scenario).
+                            cmdline.contains("proot") || cmdline.contains("bash")
+                        } catch (_: Exception) {
+                            false // /proc gone = process already dead
+                        }
+                        if (shouldKill) {
+                            proc.destroyForcibly()
+                        }
+                    }
+                } catch (_: Exception) {}
             }
-        }, "gateway-stop").apply { isDaemon = false }.start()
+        }, "gateway-stop").apply { isDaemon = true }.start()
     }
 
     /** Watchdog: periodically checks if the proot process is alive.

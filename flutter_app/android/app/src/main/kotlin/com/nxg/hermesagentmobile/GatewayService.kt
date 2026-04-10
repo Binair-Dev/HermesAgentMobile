@@ -214,7 +214,7 @@ class GatewayService : Service() {
                 synchronized(lock) {
                     if (stopping) return@Thread
                     processStartTime = System.currentTimeMillis()
-                    gatewayProcess = pm.startProotProcess("exec /root/hermes-agent/venv/bin/python /root/hermes-agent/gateway/run.py")
+                    gatewayProcess = pm.startProotProcess("exec /root/hermes-agent/venv/bin/python /root/hermes-agent/gateway/run.py --replace")
                 }
                 updateNotificationRunning()
                 emitLog("[INFO] Gateway process spawned")

@@ -165,9 +165,8 @@ class BootstrapService {
       ));
       await NativeBridge.runInProot(
         'cd /root && '
-        'if [ ! -d hermes-agent ]; then '
-        'git clone https://github.com/nousresearch/hermes-agent.git hermes-agent; '
-        'fi',
+        'rm -rf hermes-agent && '
+        'git clone https://github.com/nousresearch/hermes-agent.git hermes-agent',
         timeout: 600,
       );
 

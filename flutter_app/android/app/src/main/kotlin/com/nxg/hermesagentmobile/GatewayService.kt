@@ -210,67 +210,11 @@ class GatewayService : Service() {
                     }
                 }
 
-                emitLog("[INFO] Writing gateway wrapper script...")
-                try {
-                    pm.runInProotSync(
-                        "cat > /root/gateway_replace.py << 'PYEOF'\n" +
-                        "import asyncio, sys, os, signal, glob, time\n" +
-                        "sys.path.insert(0, '/root/hermes-agent')\n" +
-                        "from gateway.run import start_gateway\n" +
-                        "from gateway.status import get_running_pid, terminate_pid, remove_pid_file, release_all_scoped_locks\n" +
-                        "\n" +
-                        "def kill_survivors():\n" +
-                        "    my_pid = os.getpid()\n" +
-                        "    pid = get_running_pid()\n" +
-                        "    if pid and pid != my_pid:\n" +
-                        "        try:\n" +
-                        "            terminate_pid(pid, force=True)\n" +
-                        "        except Exception:\n" +
-                        "            try:\n" +
-                        "                os.kill(pid, signal.SIGKILL)\n" +
-                        "            except Exception:\n" +
-                        "                pass\n" +
-                        "        for _ in range(20):\n" +
-                        "            try:\n" +
-                        "                os.kill(pid, 0)\n" +
-                        "                time.sleep(0.3)\n" +
-                        "            except (ProcessLookupError, PermissionError):\n" +
-                        "                break\n" +
-                        "    remove_pid_file()\n" +
-                        "    for proc_dir in glob.glob('/proc/[0-9]*/'):\n" +
-                        "        try:\n" +
-                        "            pid = int(os.path.basename(proc_dir.rstrip('/')))\n" +
-                        "            if pid == my_pid or pid <= 1:\n" +
-                        "                continue\n" +
-                        "            with open(os.path.join(proc_dir, 'cmdline'), 'rb') as f:\n" +
-                        "                cmdline = f.read().replace(b'\\x00', b' ').decode('utf-8', 'replace')\n" +
-                        "            if 'gateway/run.py' in cmdline or 'gateway_replace.py' in cmdline:\n" +
-                        "                try:\n" +
-                        "                    os.kill(pid, signal.SIGKILL)\n" +
-                        "                except (ProcessLookupError, PermissionError):\n" +
-                        "                    pass\n" +
-                        "        except (ValueError, FileNotFoundError, PermissionError):\n" +
-                        "            continue\n" +
-                        "    time.sleep(0.5)\n" +
-                        "    try:\n" +
-                        "        release_all_scoped_locks()\n" +
-                        "    except Exception:\n" +
-                        "        pass\n" +
-                        "\n" +
-                        "kill_survivors()\n" +
-                        "success = asyncio.run(start_gateway(replace=True))\n" +
-                        "sys.exit(0 if success else 1)\n" +
-                        "PYEOF"
-                    )
-                } catch (_: Exception) {
-                    emitLog("[WARN] Failed to write gateway wrapper, attempting launch anyway")
-                }
-
                 emitLog("[INFO] Spawning proot process...")
                 synchronized(lock) {
                     if (stopping) return@Thread
                     processStartTime = System.currentTimeMillis()
-                    gatewayProcess = pm.startProotProcess("exec /root/hermes-agent/venv/bin/python /root/gateway_replace.py")
+                    gatewayProcess = pm.startProotProcess("cd /root/hermes-agent && source venv/bin/activate && exec python gateway/run.py")
                 }
                 updateNotificationRunning()
                 emitLog("[INFO] Gateway process spawned")
@@ -345,37 +289,8 @@ class GatewayService : Service() {
         }.also { it.start() }
     }
 
-    /** Read direct child PIDs from /proc (kernel children file). */
-    private fun getChildrenPids(pid: Int): List<Int> {
-        return try {
-            File("/proc/$pid/task/$pid/children")
-                .readText()
-                .trim()
-                .split(Regex("\\s+"))
-                .filter { it.isNotEmpty() }
-                .map { it.toInt() }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    /** Recursively collect all descendant PIDs of a given process. */
-    private fun getAllDescendantPids(pid: Int): List<Int> {
-        val result = mutableListOf<Int>()
-        val queue = ArrayDeque<Int>()
-        queue.add(pid)
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-            val children = getChildrenPids(current)
-            result.addAll(children)
-            queue.addAll(children)
-        }
-        return result
-    }
-
     private fun stopGateway() {
         val procToStop: Process?
-        val procPid: Int?
         synchronized(lock) {
             stopping = true
             restartCount = maxRestarts
@@ -387,47 +302,27 @@ class GatewayService : Service() {
             gatewayThread = null
             procToStop = gatewayProcess
             gatewayProcess = null
-            procPid = try {
-                val pidLong = Process::class.java.getDeclaredMethod("pid").invoke(procToStop) as? Long
-                pidLong?.toInt()
-            } catch (_: Exception) {
-                null
-            }
         }
         emitLog("Gateway stopped by user")
         val filesDir = applicationContext.filesDir.absolutePath
+        val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
         Thread({
-            // 1) Kill the inner Python gateway via its PID file.
+            // 1) Kill the inner Python gateway FROM INSIDE proot.
+            // This is the only reliable way because proot isolates PIDs.
             try {
-                val pidFile = File("$filesDir/rootfs/ubuntu/root/.hermes/gateway.pid")
-                if (pidFile.exists()) {
-                    val pid = pidFile.readText().trim()
-                    if (pid.isNotEmpty()) {
-                        try {
-                            Runtime.getRuntime().exec(arrayOf("kill", "-9", pid))
-                        } catch (_: Exception) {}
-                    }
-                }
+                val pm = ProcessManager(filesDir, nativeLibDir)
+                pm.runInProotSync(
+                    "PID=\$(cat /root/.hermes/gateway.pid 2>/dev/null); " +
+                    "if [ -n \"\$PID\" ]; then kill -9 \$PID 2>/dev/null || true; fi; " +
+                    "rm -f /root/.hermes/gateway.pid; " +
+                    "pkill -9 -f 'gateway/run.py' 2>/dev/null || true",
+                    timeoutSeconds = 15
+                )
             } catch (_: Exception) {}
 
-            // 2) Kill direct children of the proot wrapper.
-            procPid?.let { p ->
-                try {
-                    val reader = Runtime.getRuntime().exec(arrayOf("pgrep", "-P", p.toString()))
-                        .inputStream.bufferedReader()
-                    reader.readText().trim().split(Regex("\\s+"))
-                        .filter { it.isNotEmpty() }
-                        .forEach { childPid ->
-                            try {
-                                Runtime.getRuntime().exec(arrayOf("kill", "-9", childPid))
-                            } catch (_: Exception) {}
-                        }
-                } catch (_: Exception) {}
-            }
+            try { Thread.sleep(500) } catch (_: InterruptedException) {}
 
-            try { Thread.sleep(400) } catch (_: InterruptedException) {}
-
-            // 3) Terminate the proot wrapper.
+            // 2) Terminate the proot wrapper.
             procToStop?.let { proc ->
                 try {
                     proc.destroy()

@@ -119,10 +119,11 @@ class MainActivity : FlutterActivity() {
                 "stopGateway" -> {
                     try {
                         GatewayService.stop(applicationContext)
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.error("SERVICE_ERROR", e.message, null)
-                    }
+                    } catch (_: Exception) {}
+                    // Hard-exit the whole app when stopping the gateway.
+                    // This is the only reliable way to ensure the proot/gateway
+                    // process hierarchy is fully terminated on Android.
+                    android.os.Process.killProcess(android.os.Process.myPid())
                 }
                 "isGatewayRunning" -> {
                     result.success(GatewayService.isProcessAlive())

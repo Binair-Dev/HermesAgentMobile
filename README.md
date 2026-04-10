@@ -10,7 +10,7 @@
 > Run **Hermes Agent AI Gateway** on Android — standalone Flutter app with built-in terminal, gateway controls, and one-tap setup. Also available as a Termux CLI package.
 
 > **Credits & Origin**  
-> The mobile shell, proot integration, terminal emulator, and gateway service architecture are based on [**Hermes Agent Mobile**](https://github.com/nousresearch/hermes-agent-mobile) by Nous Research. This repository is a fork adapted specifically to run the [**Hermes Agent**](https://github.com/nousresearch/hermes-agent) AI gateway.
+> The mobile shell, proot integration, terminal emulator, and app architecture are originally from [**OpenClaw Termux**](https://github.com/mithun50/openclaw-termux) by mithun50. This repository is a fork adapted to run the [**Hermes Agent**](https://github.com/nousresearch/hermes-agent) AI gateway instead of OpenClaw.
 
 ---
 

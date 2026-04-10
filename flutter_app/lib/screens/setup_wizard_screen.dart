@@ -3,12 +3,9 @@ import 'package:provider/provider.dart';
 import '../app.dart';
 import '../constants.dart';
 import '../models/setup_state.dart';
-import '../models/optional_package.dart';
 import '../providers/setup_provider.dart';
-import '../services/package_service.dart';
 import '../widgets/progress_step.dart';
-import 'onboarding_screen.dart';
-import 'package_install_screen.dart';
+import 'dashboard_screen.dart';
 
 class SetupWizardScreen extends StatefulWidget {
   const SetupWizardScreen({super.key});
@@ -19,37 +16,16 @@ class SetupWizardScreen extends StatefulWidget {
 
 class _SetupWizardScreenState extends State<SetupWizardScreen> {
   bool _started = false;
-  Map<String, bool> _pkgStatuses = {};
-
-  Future<void> _refreshPkgStatuses() async {
-    final statuses = await PackageService.checkAllStatuses();
-    if (mounted) setState(() => _pkgStatuses = statuses);
-  }
-
-  Future<void> _installPackage(OptionalPackage package) async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => PackageInstallScreen(package: package),
-      ),
-    );
-    if (result == true) _refreshPkgStatuses();
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       body: SafeArea(
         child: Consumer<SetupProvider>(
           builder: (context, provider, _) {
             final state = provider.state;
-
-            // Load package statuses once setup completes
-            if (state.isComplete && _pkgStatuses.isEmpty) {
-              _refreshPkgStatuses();
-            }
 
             return Padding(
               padding: const EdgeInsets.all(24),
@@ -64,7 +40,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Setup OpenClaw',
+                    'Setup Hermes Agent',
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -73,14 +49,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   Text(
                     _started
                         ? 'Setting up the environment. This may take several minutes.'
-                        : 'This will download Ubuntu, Node.js, and OpenClaw into a self-contained environment.',
+                        : 'This will download Ubuntu, Python, and Hermes Agent into a self-contained environment.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 32),
                   Expanded(
-                    child: _buildSteps(state, theme, isDark),
+                    child: _buildSteps(state, theme),
                   ),
                   if (state.hasError) ...[
                     ConstrainedBox(
@@ -114,9 +90,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: () => _goToOnboarding(context),
+                        onPressed: () => _goToDashboard(context),
                         icon: const Icon(Icons.arrow_forward),
-                        label: const Text('Configure API Keys'),
+                        label: const Text('Go to Dashboard'),
                       ),
                     )
                   else if (!_started || state.hasError)
@@ -162,13 +138,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     );
   }
 
-  Widget _buildSteps(SetupState state, ThemeData theme, bool isDark) {
+  Widget _buildSteps(SetupState state, ThemeData theme) {
     final steps = [
       (1, 'Download Ubuntu rootfs', SetupStep.downloadingRootfs),
       (2, 'Extract rootfs', SetupStep.extractingRootfs),
-      (3, 'Install Node.js', SetupStep.installingNode),
-      (4, 'Install OpenClaw', SetupStep.installingOpenClaw),
-      (5, 'Configure Bionic Bypass', SetupStep.configuringBypass),
+      (3, 'Install Python', SetupStep.installingPython),
+      (4, 'Install Hermes Agent', SetupStep.installingHermesAgent),
+      (5, 'Configure environment', SetupStep.configuringEnvironment),
     ];
 
     return ListView(
@@ -188,80 +164,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             label: 'Setup complete!',
             isComplete: true,
           ),
-          const SizedBox(height: 24),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(
-              'OPTIONAL PACKAGES',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.2,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          for (final pkg in OptionalPackage.all)
-            _buildPackageTile(theme, pkg, isDark),
         ],
       ],
     );
   }
 
-  Widget _buildPackageTile(ThemeData theme, OptionalPackage package, bool isDark) {
-    final installed = _pkgStatuses[package.id] ?? false;
-    final iconBg = isDark ? AppColors.darkSurfaceAlt : const Color(0xFFF3F4F6);
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: iconBg,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(package.icon, color: theme.colorScheme.onSurfaceVariant, size: 22),
-        ),
-        title: Row(
-          children: [
-            Text(package.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            if (installed) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: AppColors.statusGreen.withAlpha(25),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('Installed',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: AppColors.statusGreen,
-                      fontWeight: FontWeight.w600,
-                    )),
-              ),
-            ],
-          ],
-        ),
-        subtitle: Text('${package.description} (${package.estimatedSize})'),
-        trailing: installed
-            ? const Icon(Icons.check_circle, color: AppColors.statusGreen)
-            : OutlinedButton(
-                onPressed: () => _installPackage(package),
-                child: const Text('Install'),
-              ),
-      ),
-    );
-  }
-
-  void _goToOnboarding(BuildContext context) {
+  void _goToDashboard(BuildContext context) {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => const OnboardingScreen(isFirstRun: true),
-      ),
+      MaterialPageRoute(builder: (_) => const DashboardScreen()),
     );
   }
 }

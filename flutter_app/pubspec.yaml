@@ -1,7 +1,7 @@
-name: openclaw
-description: OpenClaw AI Gateway for Android - standalone, no Termux required.
+name: hermes_agent_mobile
+description: Hermes Agent AI Gateway for Android - standalone, no Termux required.
 publish_to: 'none'
-version: 1.8.7+18
+version: 0.1.0+1
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -15,7 +15,7 @@ dependencies:
   dio: ^5.4.0
   http: ^1.2.0
   provider: ^6.1.0
-  shared_preferences: ^2.2.0
+  shared_preferences: 2.3.2
   path_provider: ^2.1.0
   permission_handler: ^11.3.0
   url_launcher: ^6.2.0
@@ -28,6 +28,9 @@ dependencies:
   flutter_blue_plus: ^1.32.0
   usb_serial: ^0.5.1
 
+dependency_overrides:
+  shared_preferences_android: 2.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -36,7 +39,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/bionic_bypass.js
     - assets/resolv.conf
     - assets/ic_launcher.png
   fonts:

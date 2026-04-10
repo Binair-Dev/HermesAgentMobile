@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../app.dart';
 import '../constants.dart';
 import '../models/gateway_state.dart';
 import '../providers/gateway_provider.dart';
 import '../screens/logs_screen.dart';
-import '../screens/web_dashboard_screen.dart';
 
 class GatewayControls extends StatelessWidget {
   const GatewayControls({super.key});
@@ -43,24 +43,11 @@ class GatewayControls extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => WebDashboardScreen(
-                                  url: state.dashboardUrl,
-                                ),
-                              ),
-                            );
-                          },
-                          child: Text(
-                            state.dashboardUrl ?? AppConstants.gatewayUrl,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontFamily: 'monospace',
-                              decoration: TextDecoration.underline,
-                              decorationColor: theme.colorScheme.primary,
-                            ),
+                        child: SelectableText(
+                          state.dashboardUrl ?? AppConstants.gatewayUrl,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontFamily: 'monospace',
                           ),
                         ),
                       ),
@@ -82,13 +69,10 @@ class GatewayControls extends StatelessWidget {
                         icon: const Icon(Icons.open_in_new, size: 18),
                         tooltip: 'Open dashboard',
                         onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => WebDashboardScreen(
-                                url: state.dashboardUrl,
-                              ),
-                            ),
-                          );
+                          final url = Uri.tryParse(state.dashboardUrl ?? AppConstants.gatewayUrl);
+                          if (url != null) {
+                            launchUrl(url, mode: LaunchMode.externalApplication);
+                          }
                         },
                       ),
                     ],

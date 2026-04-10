@@ -46,12 +46,10 @@ class BootstrapService {
     required void Function(SetupState) onProgress,
   }) async {
     try {
-      // Start foreground service to keep app alive during setup
       try {
         await NativeBridge.startSetupService();
-      } catch (_) {} // Non-fatal if service fails to start
+      } catch (_) {}
 
-      // Step 0: Setup directories
       onProgress(const SetupState(
         step: SetupStep.checkingStatus,
         progress: 0.0,
@@ -61,12 +59,10 @@ class BootstrapService {
       try { await NativeBridge.setupDirs(); } catch (_) {}
       try { await NativeBridge.writeResolv(); } catch (_) {}
 
-      // Step 1: Download rootfs
       final arch = await NativeBridge.getArch();
       final rootfsUrl = AppConstants.getRootfsUrl(arch);
       final filesDir = await NativeBridge.getFilesDir();
 
-      // Direct Dart fallback: ensure config dir + resolv.conf exist (#40).
       const resolvContent = 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n';
       try {
         final configDir = '$filesDir/config';
@@ -75,7 +71,6 @@ class BootstrapService {
           Directory(configDir).createSync(recursive: true);
           resolvFile.writeAsStringSync(resolvContent);
         }
-        // Also write into rootfs /etc/ so DNS works even if bind-mount fails
         final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
         if (!rootfsResolv.existsSync()) {
           rootfsResolv.parent.createSync(recursive: true);
@@ -99,7 +94,6 @@ class BootstrapService {
             final progress = received / total;
             final mb = (received / 1024 / 1024).toStringAsFixed(1);
             final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
-            // Map download to 5-30% of overall progress
             final notifProgress = 5 + (progress * 25).round();
             _updateSetupNotification('Downloading rootfs: $mb / $totalMb MB', progress: notifProgress);
             onProgress(SetupState(
@@ -111,7 +105,6 @@ class BootstrapService {
         },
       );
 
-      // Step 2: Extract rootfs (30-45%)
       _updateSetupNotification('Extracting rootfs...', progress: 30);
       onProgress(const SetupState(
         step: SetupStep.extractingRootfs,
@@ -125,21 +118,12 @@ class BootstrapService {
         message: 'Rootfs extracted',
       ));
 
-      // Install bionic bypass + cwd-fix + node-wrapper BEFORE using node.
-      // The wrapper patches process.cwd() which returns ENOSYS in proot.
-      await NativeBridge.installBionicBypass();
-
-      // Step 3: Install Node.js (45-80%)
-      // Fix permissions inside proot (Java extraction may miss execute bits)
       _updateSetupNotification('Fixing rootfs permissions...', progress: 45);
       onProgress(const SetupState(
-        step: SetupStep.installingNode,
+        step: SetupStep.installingPython,
         progress: 0.0,
         message: 'Fixing rootfs permissions...',
       ));
-      // Blanket recursive chmod on all bin/lib directories.
-      // Java tar extraction loses execute bits; dpkg needs tar, xz,
-      // gzip, rm, mv, etc. — easier to fix everything than enumerate.
       await NativeBridge.runInProot(
         'chmod -R 755 /usr/bin /usr/sbin /bin /sbin '
         '/usr/local/bin /usr/local/sbin 2>/dev/null; '
@@ -150,13 +134,9 @@ class BootstrapService {
         'echo permissions_fixed',
       );
 
-      // --- Install base packages via apt-get (like Termux proot-distro) ---
-      // Now that our proot matches Termux exactly (env -i, clean host env,
-      // proper flags), dpkg works normally. No need for Java-side deb
-      // extraction — let dpkg+tar handle it inside proot like Termux does.
       _updateSetupNotification('Updating package lists...', progress: 48);
       onProgress(const SetupState(
-        step: SetupStep.installingNode,
+        step: SetupStep.installingPython,
         progress: 0.1,
         message: 'Updating package lists...',
       ));
@@ -164,145 +144,75 @@ class BootstrapService {
 
       _updateSetupNotification('Installing base packages...', progress: 52);
       onProgress(const SetupState(
-        step: SetupStep.installingNode,
+        step: SetupStep.installingPython,
         progress: 0.15,
         message: 'Installing base packages...',
       ));
-      // ca-certificates: HTTPS for npm/git
-      // git: openclaw has git deps (@whiskeysockets/libsignal-node)
-      // python3, make, g++: node-gyp needs these to compile native addons
-      //   (npm's bundled node-gyp runs as a JS module, not a spawned process,
-      //    so proot-compat.js spawn mock can't intercept it)
-      // dpkg extracts via tar inside proot — permissions are correct.
-      // Post-install scripts (update-ca-certificates) run automatically.
-      // Pre-configure tzdata to avoid interactive continent/timezone prompt
-      // (tzdata is a dependency of python3 and ignores DEBIAN_FRONTEND on
-      // first install if no timezone is pre-set).
       await NativeBridge.runInProot(
         'ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime && '
         'echo "Etc/UTC" > /etc/timezone',
       );
       await NativeBridge.runInProot(
         'apt-get install -y --no-install-recommends '
-        'ca-certificates git python3 make g++ curl wget',
+        'ca-certificates git python3 python3-venv python3-pip curl wget',
       );
 
-      // Git config (.gitconfig) is written by installBionicBypass() on the
-      // Java side — directly to $rootfsDir/root/.gitconfig — rewrites
-      // SSH→HTTPS for npm git deps (no SSH keys in proot).
-
-      // --- Install Node.js via binary tarball ---
-      // Download directly from nodejs.org (bypasses curl/gpg/NodeSource
-      // which fail inside proot). Includes node + npm + corepack.
-      final nodeTarUrl = AppConstants.getNodeTarballUrl(arch);
-      final nodeTarPath = '$filesDir/tmp/nodejs.tar.xz';
-
+      _updateSetupNotification('Cloning Hermes Agent...', progress: 70);
       onProgress(const SetupState(
-        step: SetupStep.installingNode,
-        progress: 0.3,
-        message: 'Downloading Node.js ${AppConstants.nodeVersion}...',
-      ));
-      _updateSetupNotification('Downloading Node.js...', progress: 55);
-      await _dio.download(
-        nodeTarUrl,
-        nodeTarPath,
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            final progress = 0.3 + (received / total) * 0.4;
-            final mb = (received / 1024 / 1024).toStringAsFixed(1);
-            final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
-            // Map Node download to 55-70% of overall
-            final notifProgress = 55 + ((received / total) * 15).round();
-            _updateSetupNotification('Downloading Node.js: $mb / $totalMb MB', progress: notifProgress);
-            onProgress(SetupState(
-              step: SetupStep.installingNode,
-              progress: progress,
-              message: 'Downloading Node.js: $mb MB / $totalMb MB',
-            ));
-          }
-        },
-      );
-
-      _updateSetupNotification('Extracting Node.js...', progress: 72);
-      onProgress(const SetupState(
-        step: SetupStep.installingNode,
-        progress: 0.75,
-        message: 'Extracting Node.js...',
-      ));
-      await NativeBridge.extractNodeTarball(nodeTarPath);
-
-      _updateSetupNotification('Verifying Node.js...', progress: 78);
-      onProgress(const SetupState(
-        step: SetupStep.installingNode,
-        progress: 0.9,
-        message: 'Verifying Node.js...',
-      ));
-      // node-wrapper.js patches broken proot syscalls before loading npm.
-      // /usr/local/bin is on PATH, so node finds the tarball's npm.
-      const wrapper = '/root/.openclaw/node-wrapper.js';
-      const nodeRun = 'node $wrapper';
-      // npm from nodejs.org tarball is at /usr/local/lib/node_modules/npm
-      const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
-      await NativeBridge.runInProot(
-        'node --version && $nodeRun $npmCli --version',
-      );
-      onProgress(const SetupState(
-        step: SetupStep.installingNode,
-        progress: 1.0,
-        message: 'Node.js installed',
-      ));
-
-      // Step 4: Install OpenClaw (80-98%)
-      _updateSetupNotification('Installing OpenClaw...', progress: 82);
-      onProgress(const SetupState(
-        step: SetupStep.installingOpenClaw,
+        step: SetupStep.installingHermesAgent,
         progress: 0.0,
-        message: 'Installing OpenClaw (this may take a few minutes)...',
+        message: 'Cloning Hermes Agent repository...',
       ));
-      // Install openclaw — fork/exec works now with our Termux-matching proot.
       await NativeBridge.runInProot(
-        '$nodeRun $npmCli install -g openclaw',
+        'cd /root && '
+        'if [ ! -d hermes-agent ]; then '
+        'git clone https://github.com/nousresearch/hermes-agent.git hermes-agent; '
+        'fi',
+        timeout: 600,
+      );
+
+      _updateSetupNotification('Installing Python dependencies...', progress: 85);
+      onProgress(const SetupState(
+        step: SetupStep.installingHermesAgent,
+        progress: 0.5,
+        message: 'Installing Python dependencies...',
+      ));
+      await NativeBridge.runInProot(
+        'cd /root/hermes-agent && '
+        'python3 -m venv venv && '
+        'source venv/bin/activate && '
+        'pip install --upgrade pip && '
+        'pip install -r requirements.txt',
         timeout: 1800,
       );
 
-      _updateSetupNotification('Creating bin wrappers...', progress: 92);
+      _updateSetupNotification('Verifying installation...', progress: 96);
       onProgress(const SetupState(
-        step: SetupStep.installingOpenClaw,
-        progress: 0.7,
-        message: 'Creating bin wrappers...',
-      ));
-      // npm global install creates symlinks for bin entries, but symlinks
-      // can fail silently in proot. Create shell wrappers from Java side
-      // (reads package.json directly from rootfs filesystem — no escaping).
-      await NativeBridge.createBinWrappers('openclaw');
-
-      _updateSetupNotification('Verifying OpenClaw...', progress: 96);
-      onProgress(const SetupState(
-        step: SetupStep.installingOpenClaw,
+        step: SetupStep.installingHermesAgent,
         progress: 0.9,
-        message: 'Verifying OpenClaw...',
+        message: 'Verifying Hermes Agent installation...',
       ));
-      await NativeBridge.runInProot('openclaw --version || echo openclaw_installed');
+      await NativeBridge.runInProot(
+        'test -f /root/hermes-agent/gateway/run.py && echo hermes_ready',
+      );
       onProgress(const SetupState(
-        step: SetupStep.installingOpenClaw,
+        step: SetupStep.installingHermesAgent,
         progress: 1.0,
-        message: 'OpenClaw installed',
+        message: 'Hermes Agent installed',
       ));
 
-      // Step 5: Bionic Bypass already installed (before node verification)
       _updateSetupNotification('Setup complete!', progress: 100);
       onProgress(const SetupState(
-        step: SetupStep.configuringBypass,
+        step: SetupStep.configuringEnvironment,
         progress: 1.0,
-        message: 'Bionic Bypass configured',
+        message: 'Environment configured',
       ));
 
-      // Done
       _stopSetupService();
       onProgress(const SetupState(
         step: SetupStep.complete,
         progress: 1.0,
-        message: 'Setup complete! Ready to start the gateway.',
+        message: 'Setup complete! Ready to start the agent.',
       ));
     } on DioException catch (e) {
       _stopSetupService();

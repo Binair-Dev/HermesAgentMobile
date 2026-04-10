@@ -3,17 +3,21 @@ import 'package:flutter/material.dart';
 class StatusCard extends StatelessWidget {
   final String title;
   final String subtitle;
+  final String? value;
   final IconData icon;
   final Color? color;
+  final Color? iconColor;
   final Widget? trailing;
   final VoidCallback? onTap;
 
   const StatusCard({
     super.key,
     required this.title,
-    required this.subtitle,
+    this.subtitle = '',
+    this.value,
     required this.icon,
     this.color,
+    this.iconColor,
     this.trailing,
     this.onTap,
   });
@@ -23,7 +27,7 @@ class StatusCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final iconBg = isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF3F4F6);
-    final iconColor = theme.colorScheme.onSurfaceVariant;
+    final defaultIconColor = theme.colorScheme.onSurfaceVariant;
 
     return Card(
       child: InkWell(
@@ -39,7 +43,7 @@ class StatusCard extends StatelessWidget {
                   color: iconBg,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: iconColor, size: 28),
+                child: Icon(icon, color: iconColor ?? defaultIconColor, size: 28),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -54,7 +58,7 @@ class StatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      subtitle,
+                      value ?? subtitle,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),

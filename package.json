@@ -1,37 +1,36 @@
 {
-  "name": "openclaw-termux",
-  "version": "1.8.7",
-  "description": "OpenClaw AI Gateway for Android Termux with Bionic Bypass",
+  "name": "hermes-agent-mobile",
+  "version": "0.1.0",
+  "description": "Hermes Agent Mobile for Android Termux — run Hermes Agent on Android",
   "main": "lib/index.js",
   "type": "module",
   "bin": {
-    "openclawx": "bin/openclawx",
-    "openclawx-setup": "bin/openclawx"
+    "hermesx": "bin/hermesx",
+    "hermesx-setup": "bin/hermesx"
   },
   "scripts": {
     "test": "node lib/test.js",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "postinstall": "node lib/postinstall.js"
+    "lint:fix": "eslint . --fix"
   },
   "keywords": [
-    "openclaw",
+    "hermes",
+    "hermes-agent",
     "termux",
     "android",
     "ai",
-    "gateway",
-    "gemini",
+    "agent",
     "claude"
   ],
-  "author": "Mithun Gowda B <mithungowda.b7411@gmail.com>",
+  "author": "B_nair <van.bellinghen.brian@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mithun50/openclaw-termux.git"
+    "url": "git+https://github.com/nousresearch/hermes-agent-mobile.git"
   },
-  "homepage": "https://github.com/mithun50/openclaw-termux#readme",
+  "homepage": "https://github.com/nousresearch/hermes-agent-mobile#readme",
   "bugs": {
-    "url": "https://github.com/mithun50/openclaw-termux/issues"
+    "url": "https://github.com/nousresearch/hermes-agent-mobile/issues"
   },
   "engines": {
     "node": ">=22.0.0"

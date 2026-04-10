@@ -54,24 +54,36 @@ class NativeBridge {
     return await _channel.invokeMethod('setupDirs');
   }
 
-  static Future<bool> installBionicBypass() async {
-    return await _channel.invokeMethod('installBionicBypass');
-  }
-
   static Future<bool> writeResolv() async {
     return await _channel.invokeMethod('writeResolv');
   }
 
-  static Future<int> extractDebPackages() async {
-    return await _channel.invokeMethod('extractDebPackages');
+  static Future<String> readRootfsFile(String path) async {
+    return await _channel.invokeMethod('readRootfsFile', {'path': path});
   }
 
-  static Future<bool> extractNodeTarball(String tarPath) async {
-    return await _channel.invokeMethod('extractNodeTarball', {'tarPath': tarPath});
+  static Future<bool> writeRootfsFile(String path, String content) async {
+    return await _channel.invokeMethod('writeRootfsFile', {'path': path, 'content': content});
   }
 
-  static Future<bool> createBinWrappers(String packageName) async {
-    return await _channel.invokeMethod('createBinWrappers', {'packageName': packageName});
+  static Future<bool> hasStoragePermission() async {
+    return await _channel.invokeMethod('hasStoragePermission');
+  }
+
+  static Future<bool> requestStoragePermission() async {
+    return await _channel.invokeMethod('requestStoragePermission');
+  }
+
+  static Future<String> getExternalStoragePath() async {
+    return await _channel.invokeMethod('getExternalStoragePath');
+  }
+
+  static Future<bool> isBatteryOptimized() async {
+    return await _channel.invokeMethod('isBatteryOptimized');
+  }
+
+  static Future<bool> requestBatteryOptimization() async {
+    return await _channel.invokeMethod('requestBatteryOptimization');
   }
 
   static Future<bool> startTerminalService() async {
@@ -82,114 +94,24 @@ class NativeBridge {
     return await _channel.invokeMethod('stopTerminalService');
   }
 
-  static Future<bool> isTerminalServiceRunning() async {
-    return await _channel.invokeMethod('isTerminalServiceRunning');
-  }
-
-  static Future<bool> startNodeService() async {
-    return await _channel.invokeMethod('startNodeService');
-  }
-
-  static Future<bool> stopNodeService() async {
-    return await _channel.invokeMethod('stopNodeService');
-  }
-
-  static Future<bool> isNodeServiceRunning() async {
-    return await _channel.invokeMethod('isNodeServiceRunning');
-  }
-
-  static Future<Map<String, dynamic>> getBatteryStatus() async {
-    final result = await _channel.invokeMethod('getBatteryStatus');
-    return Map<String, dynamic>.from(result as Map);
-  }
-
-  static Future<bool> updateNodeNotification(String text) async {
-    return await _channel.invokeMethod('updateNodeNotification', {'text': text});
-  }
-
-  static Future<bool> requestBatteryOptimization() async {
-    return await _channel.invokeMethod('requestBatteryOptimization');
-  }
-
-  static Future<bool> isBatteryOptimized() async {
-    return await _channel.invokeMethod('isBatteryOptimized');
-  }
-
   static Future<bool> startSetupService() async {
     return await _channel.invokeMethod('startSetupService');
-  }
-
-  static Future<bool> updateSetupNotification(String text, {int progress = -1}) async {
-    return await _channel.invokeMethod('updateSetupNotification', {'text': text, 'progress': progress});
   }
 
   static Future<bool> stopSetupService() async {
     return await _channel.invokeMethod('stopSetupService');
   }
 
-  static Future<bool> showUrlNotification(String url, {String title = 'URL Detected'}) async {
-    return await _channel.invokeMethod('showUrlNotification', {'url': url, 'title': title});
+  static void updateSetupNotification(String text, {int progress = -1}) {
+    _channel.invokeMethod('updateSetupNotification', {
+      'text': text,
+      'progress': progress,
+    });
   }
 
-  static Stream<String> get gatewayLogStream {
-    return _eventChannel.receiveBroadcastStream().map((event) => event.toString());
-  }
-
-  static Future<String?> requestScreenCapture(int durationMs) async {
-    return await _channel.invokeMethod('requestScreenCapture', {'durationMs': durationMs});
-  }
-
-  static Future<bool> stopScreenCapture() async {
-    return await _channel.invokeMethod('stopScreenCapture');
-  }
-
-  static Future<bool> requestStoragePermission() async {
-    return await _channel.invokeMethod('requestStoragePermission');
-  }
-
-  static Future<bool> hasStoragePermission() async {
-    return await _channel.invokeMethod('hasStoragePermission');
-  }
-
-  static Future<String> getExternalStoragePath() async {
-    return await _channel.invokeMethod('getExternalStoragePath');
-  }
-
-  static Future<String?> readRootfsFile(String path) async {
-    return await _channel.invokeMethod('readRootfsFile', {'path': path});
-  }
-
-  static Future<bool> writeRootfsFile(String path, String content) async {
-    return await _channel.invokeMethod('writeRootfsFile', {'path': path, 'content': content});
-  }
-
-  // SSH Service
-  static Future<bool> startSshd({int port = 8022}) async {
-    return await _channel.invokeMethod('startSshd', {'port': port});
-  }
-
-  static Future<bool> stopSshd() async {
-    return await _channel.invokeMethod('stopSshd');
-  }
-
-  static Future<bool> isSshdRunning() async {
-    return await _channel.invokeMethod('isSshdRunning');
-  }
-
-  static Future<int> getSshdPort() async {
-    return await _channel.invokeMethod('getSshdPort');
-  }
-
-  static Future<List<String>> getDeviceIps() async {
-    final result = await _channel.invokeMethod('getDeviceIps');
-    return List<String>.from(result);
-  }
-
-  static Future<bool> bringToForeground() async {
-    return await _channel.invokeMethod('bringToForeground');
-  }
-
-  static Future<bool> setRootPassword(String password) async {
-    return await _channel.invokeMethod('setRootPassword', {'password': password});
+  static Stream<String> get gatewayLogStream async* {
+    await for (final event in _eventChannel.receiveBroadcastStream()) {
+      if (event is String) yield event;
+    }
   }
 }

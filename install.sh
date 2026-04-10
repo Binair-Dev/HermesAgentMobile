@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# OpenClaw-Termux Installer
-# One-liner: curl -fsSL https://raw.githubusercontent.com/mithun50/openclaw-termux/main/install.sh | bash
+# Hermes Agent Mobile — Termux Installer
+# One-liner: curl -fsSL https://raw.githubusercontent.com/nousresearch/hermes-agent-mobile/main/install.sh | bash
 #
 
 set -e
@@ -15,8 +15,8 @@ NC='\033[0m'
 
 echo -e "${BLUE}"
 echo "╔═══════════════════════════════════════════╗"
-echo "║     OpenClaw-Termux Installer            ║"
-echo "║     AI Gateway for Android                ║"
+echo "║     Hermes Agent Mobile Installer        ║"
+echo "║     AI Agent for Android                  ║"
 echo "╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -35,21 +35,18 @@ echo -e "  ${GREEN}✓${NC} npm $(npm --version)"
 echo -e "  ${GREEN}✓${NC} git installed"
 echo -e "  ${GREEN}✓${NC} proot-distro installed"
 
-# Install openclaw-termux from npm
-echo -e "\n${BLUE}[2/2]${NC} Installing openclaw-termux..."
-npm install -g openclaw-termux
+# Install hermes-agent-mobile from local or npm
+echo -e "\n${BLUE}[2/2]${NC} Installing hermes-agent-mobile..."
+npm install -g hermes-agent-mobile
 
 echo -e "\n${GREEN}═══════════════════════════════════════════${NC}"
 echo -e "${GREEN}Installation complete!${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. Run setup:      openclawx setup"
-echo "  2. Run onboarding: openclawx onboarding"
-echo "     → Select 'Loopback (127.0.0.1)' when asked!"
-echo "  3. Start gateway:  openclawx start"
-echo ""
-echo -e "Dashboard: ${BLUE}http://127.0.0.1:18789${NC}"
+echo "  1. Run setup:      hermesx setup"
+echo "  2. Configure:      hermesx configure"
+echo "  3. Start agent:    hermesx start"
 echo ""
 echo -e "${YELLOW}Tip:${NC} Disable battery optimization for Termux in Android settings"
 echo ""

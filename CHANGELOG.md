@@ -4,12 +4,12 @@
 
 ### Bug Fixes
 
-- **Config Corruption Fix (#83, #88)** — Provider model entries were written as bare strings instead of objects (`{ id: "model-name" }`), causing OpenClaw config validation to reject the file with "expected object, received string". Fixed both the Node.js script path and the direct file I/O fallback in `ProviderConfigService`. Existing corrupted configs are now auto-repaired on gateway init
+- **Config Corruption Fix (#83, #88)** — Provider model entries were written as bare strings instead of objects (`{ id: "model-name" }`), causing Hermes Agent config validation to reject the file with "expected object, received string". Fixed both the Node.js script path and the direct file I/O fallback in `ProviderConfigService`. Existing corrupted configs are now auto-repaired on gateway init
 - **Gateway Start Failure (#93, #90)** — The gateway blocked with "set gateway.mode=local (current: unset)". Now `gateway.mode=local` is set automatically in openclaw.json during provider config saves, gateway config writes, bionic bypass installation, and on startup repair
 - **Config Auto-Repair on Init (#88)** — Added `_repairConfigFile()` that runs on every `GatewayService.init()` to fix corrupted model entries and missing `gateway.mode`, preventing the crash-restart loop (5 restarts → stopped)
 - **Bionic Bypass Installation Robustness (#94)** — Added retry logic with parent directory creation if the initial `mkdirs()` fails silently on some devices
 - **Pre-seed Config on Setup** — `installBionicBypass()` now creates a default `openclaw.json` with `gateway.mode=local` during initial setup, so the gateway works immediately after installation
-- **Setup Re-prompt After Node Upgrade (#97)** — Expanded auto-repair on splash screen to reinstall Node.js and OpenClaw when their binaries are missing but rootfs is intact, instead of forcing a full re-setup
+- **Setup Re-prompt After Node Upgrade (#97)** — Expanded auto-repair on splash screen to reinstall Node.js and Hermes Agent when their binaries are missing but rootfs is intact, instead of forcing a full re-setup
 
 ### Enhancements
 
@@ -58,7 +58,7 @@
 
 ### Bug Fixes
 
-- **Setup State Detection (#44)** — `openclawx onboard` no longer says setup isn't done after a successful setup. Replaced slow proot exec check with fast filesystem check for openclaw detection, with a longer-timeout fallback
+- **Setup State Detection (#44)** — `hermesx onboard` no longer says setup isn't done after a successful setup. Replaced slow proot exec check with fast filesystem check for openclaw detection, with a longer-timeout fallback
 - **DNS / No Internet Inside Proot (#45)** — resolv.conf is now written to both `config/resolv.conf` (bind-mount source) and `rootfs/ubuntu/etc/resolv.conf` (direct fallback) at every entry point: app start, every proot invocation, gateway start, SSH start, and all terminal screens. Survives APK updates
 - **NVIDIA NIM Config Breaks Onboarding (#46)** — Provider config save now falls back to direct file write if the proot Node.js one-liner fails (e.g. due to DNS issues)
 
@@ -165,7 +165,7 @@
 
 - **Fade-In Animation** — 800ms fade-in on launch with easeOut curve
 - **App Icon Branding** — Uses ic_launcher.png instead of generic cloud icon
-- **Inter Bold Wordmark** — "OpenClaw" displayed in Inter weight 800 with letter-spacing
+- **Inter Bold Wordmark** — "Hermes Agent" displayed in Inter weight 800 with letter-spacing
 
 ### Polish
 
@@ -178,7 +178,7 @@
 
 ### CI
 
-- Removed OpenClaw Node app build from workflow (gateway-only CI now)
+- Removed Hermes Agent Node app build from workflow (gateway-only CI now)
 
 ---
 
@@ -205,7 +205,7 @@
 - **Gateway Config** — Patches `/root/.openclaw/openclaw.json` to clear `denyCommands` and set `allowCommands` for all 15 commands (previously wrote to wrong config file)
 - **Location Timeout** — Added 10-second time limit to GPS fix with fallback to last known position
 - **Canvas Errors** — Returns honest `NOT_IMPLEMENTED` errors instead of fake success responses
-- **Node Display Name** — Renamed from "OpenClaw Termux" to "OpenClawX Node"
+- **Node Display Name** — Renamed from "Hermes Agent Termux" to "Hermes AgentX Node"
 
 ### Node Command Reference
 

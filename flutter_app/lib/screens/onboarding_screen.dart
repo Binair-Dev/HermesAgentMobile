@@ -7,20 +7,16 @@ import 'package:flutter_pty/flutter_pty.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants.dart';
 import '../services/native_bridge.dart';
-import '../services/screenshot_service.dart';
 import '../services/terminal_service.dart';
 import '../services/preferences_service.dart';
 import '../widgets/terminal_toolbar.dart';
 import 'dashboard_screen.dart';
 
-/// Runs `openclaw onboard` in a terminal so the user can configure
+/// Runs `hermes setup` in a terminal so the user can configure
 /// API keys and select loopback binding. Shown after first-time setup
 /// and accessible from the dashboard for re-configuration.
 class OnboardingScreen extends StatefulWidget {
-  /// If true, shows a "Go to Dashboard" button when onboarding exits.
-  /// Used after first-time setup. If false, just pops back.
   final bool isFirstRun;
-
   const OnboardingScreen({super.key, this.isFirstRun = false});
 
   @override
@@ -36,11 +32,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String? _error;
   final _ctrlNotifier = ValueNotifier<bool>(false);
   final _altNotifier = ValueNotifier<bool>(false);
-  final _screenshotKey = GlobalKey();
   static final _anyUrlRegex = RegExp(r'https?://[^\s<>\[\]"' "'" r'\)]+');
-  static final _tokenUrlRegex = RegExp(r'https?://(?:localhost|127\.0\.0\.1):18789/#token=[0-9a-f]+');
   static final _ansiEscape = AppConstants.ansiEscape;
-  /// Box-drawing and other TUI characters that break URLs when copied
   static final _boxDrawing = RegExp(r'[│┤├┬┴┼╮╯╰╭─╌╴╶┌┐└┘◇◆]+');
   static final _completionPattern = RegExp(
     r'onboard(ing)?\s+(is\s+)?complete|successfully\s+onboarded|setup\s+complete',
@@ -66,10 +59,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _terminal = Terminal(maxLines: 10000);
     _controller = TerminalController();
     NativeBridge.startTerminalService();
-    // Defer PTY start until after the first frame so TerminalView has been
-    // laid out and _terminal.viewWidth/viewHeight reflect real screen
-    // dimensions instead of the 80×24 default. This is critical for QR
-    // codes — the shell must know the actual column count to avoid wrapping.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startOnboarding();
     });
@@ -79,7 +68,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _pty?.kill();
     _pty = null;
     try {
-      // Ensure dirs + resolv.conf exist before proot starts (#40).
       try { await NativeBridge.setupDirs(); } catch (_) {}
       try { await NativeBridge.writeResolv(); } catch (_) {}
       try {
@@ -90,7 +78,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Directory('$filesDir/config').createSync(recursive: true);
           resolvFile.writeAsStringSync(resolvContent);
         }
-        // Also write into rootfs /etc/ so DNS works even if bind-mount fails
         final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
         if (!rootfsResolv.existsSync()) {
           rootfsResolv.parent.createSync(recursive: true);
@@ -104,28 +91,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         rows: _terminal.viewHeight,
       );
 
-      // Replace the login shell with a command that runs onboarding.
-      // buildProotArgs ends with [..., '/bin/bash', '-l']
-      // Replace with [..., '/bin/bash', '-lc', 'openclaw onboard']
-
       final onboardingArgs = List<String>.from(args);
-      onboardingArgs.removeLast(); // remove '-l'
-      onboardingArgs.removeLast(); // remove '/bin/bash'
+      onboardingArgs.removeLast();
+      onboardingArgs.removeLast();
       onboardingArgs.addAll([
         '/bin/bash', '-lc',
-        'echo "=== OpenClaw Onboarding ===" && '
+        'echo "=== Hermes Agent Onboarding ===" && '
         'echo "Configure your API keys and binding settings." && '
         'echo "TIP: Select Loopback (127.0.0.1) when asked for binding!" && '
         'echo "" && '
-        'openclaw onboard; '
+        'cd /root/hermes-agent && source venv/bin/activate && python -m hermes_cli.main setup; '
         'echo "" && echo "Onboarding complete! You can close this screen."',
       ]);
 
       _pty = Pty.start(
         config['executable']!,
         arguments: onboardingArgs,
-        // Host-side env: only proot-specific vars.
-        // Guest env is set via env -i in buildProotArgs.
         environment: TerminalService.buildHostEnv(config),
         columns: _terminal.viewWidth,
         rows: _terminal.viewHeight,
@@ -134,36 +115,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _pty!.output.cast<List<int>>().listen((data) {
         final text = utf8.decode(data, allowMalformed: true);
         _terminal.write(text);
-        // Scan output for token URL (e.g. http://localhost:18789/#token=...)
         _outputBuffer += text;
-        // Keep buffer manageable
         if (_outputBuffer.length > 4096) {
           _outputBuffer = _outputBuffer.substring(_outputBuffer.length - 2048);
         }
-        // Strip ANSI escape codes for text analysis
         final cleanText = _outputBuffer.replaceAll(_ansiEscape, '');
-        // For URL matching, strip whitespace + box-drawing chars
-        final cleanForUrl = cleanText
-            .replaceAll(_boxDrawing, '')
-            .replaceAll(RegExp(r'\s+'), '');
-        // Save token URL to preferences if found
-        final tokenMatch = _tokenUrlRegex.firstMatch(cleanForUrl);
-        if (tokenMatch != null) {
-          _saveTokenUrl(tokenMatch.group(0)!);
-        }
-        // Detect onboarding completion from output text
         if (!_finished && _completionPattern.hasMatch(cleanText)) {
-          if (mounted) {
-            setState(() => _finished = true);
-          }
+          if (mounted) setState(() => _finished = true);
         }
       });
 
       _pty!.exitCode.then((code) {
         _terminal.write('\r\n[Onboarding exited with code $code]\r\n');
-        if (mounted) {
-          setState(() => _finished = true);
-        }
+        if (mounted) setState(() => _finished = true);
       });
 
       _terminal.onOutput = (data) {
@@ -196,12 +160,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  Future<void> _saveTokenUrl(String url) async {
-    final prefs = PreferencesService();
-    await prefs.init();
-    prefs.dashboardUrl = url;
-  }
-
   @override
   void dispose() {
     _ctrlNotifier.dispose();
@@ -230,22 +188,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return text.isEmpty ? null : text;
   }
 
-  /// Extract a clean URL from selected text by stripping box-drawing
-  /// chars and rejoining lines, but splitting on `http` boundaries
-  /// so concatenated URLs don't merge into one.
   String? _extractUrl(String text) {
     final clean = text.replaceAll(_boxDrawing, '').replaceAll(RegExp(r'\s+'), '');
-    // Split before each http(s):// so concatenated URLs become separate
     final parts = clean.split(RegExp(r'(?=https?://)'));
-    // Return the longest URL match (token URLs are longest)
     String? best;
     for (final part in parts) {
       final match = _anyUrlRegex.firstMatch(part);
       if (match != null) {
         final url = match.group(0)!;
-        if (best == null || url.length > best.length) {
-          best = url;
-        }
+        if (best == null || url.length > best.length) best = url;
       }
     }
     return best;
@@ -254,10 +205,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _copySelection() {
     final text = _getSelectedText();
     if (text == null) return;
-
     Clipboard.setData(ClipboardData(text: text));
-
-    // If the copied text contains a URL, offer "Open" action
     final url = _extractUrl(text);
     if (url != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -268,9 +216,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             label: 'Open',
             onPressed: () {
               final uri = Uri.tryParse(url);
-              if (uri != null) {
-                launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
+              if (uri != null) launchUrl(uri, mode: LaunchMode.externalApplication);
             },
           ),
         ),
@@ -288,7 +234,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _openSelection() {
     final text = _getSelectedText();
     if (text == null) return;
-
     final url = _extractUrl(text);
     if (url != null) {
       final uri = Uri.tryParse(url);
@@ -312,33 +257,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  Future<void> _takeScreenshot() async {
-    final path = await ScreenshotService.capture(_screenshotKey, prefix: 'onboarding');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(path != null
-            ? 'Screenshot saved: ${path.split('/').last}'
-            : 'Failed to capture screenshot'),
-      ),
-    );
-  }
-
   void _handleTap(TapUpDetails details, CellOffset offset) {
-    // Join adjacent lines and extract URL, handling wrapped URLs
-    // and TUI box-drawing characters.
     final totalLines = _terminal.buffer.lines.length;
     final startRow = (offset.y - 2).clamp(0, totalLines - 1);
     final endRow = (offset.y + 2).clamp(0, totalLines - 1);
-
     final sb = StringBuffer();
     for (int row = startRow; row <= endRow; row++) {
       sb.write(_getLineText(row).trimRight());
     }
     final url = _extractUrl(sb.toString());
-    if (url != null) {
-      _openUrl(url);
-    }
+    if (url != null) _openUrl(url);
   }
 
   String _getLineText(int row) {
@@ -347,9 +275,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final sb = StringBuffer();
       for (int i = 0; i < line.length; i++) {
         final char = line.getCodePoint(i);
-        if (char != 0) {
-          sb.writeCharCode(char);
-        }
+        if (char != 0) sb.writeCharCode(char);
       }
       return sb.toString();
     } catch (_) {
@@ -360,7 +286,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _openUrl(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
-
     final shouldOpen = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -391,10 +316,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
     );
-
-    if (shouldOpen == true) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    if (shouldOpen == true) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _goToDashboard() async {
@@ -403,7 +325,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await prefs.init();
     prefs.setupComplete = true;
     prefs.isFirstRun = false;
-
     if (mounted) {
       navigator.pushReplacement(
         MaterialPageRoute(builder: (_) => const DashboardScreen()),
@@ -415,20 +336,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OpenClaw Onboarding'),
+        title: const Text('Hermes Agent Onboarding'),
         leading: widget.isFirstRun
-            ? null // no back button during first-run
+            ? null
             : IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.of(context).pop(),
               ),
         automaticallyImplyLeading: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined),
-            tooltip: 'Screenshot',
-            onPressed: _takeScreenshot,
-          ),
           IconButton(
             icon: const Icon(Icons.copy),
             tooltip: 'Copy',
@@ -500,20 +416,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             )
           else ...[
             Expanded(
-              child: RepaintBoundary(
-                key: _screenshotKey,
-                child: TerminalView(
-                  _terminal,
-                  controller: _controller,
+              child: TerminalView(
+                _terminal,
+                controller: _controller,
+                onTapUp: _handleTap,
                   textStyle: const TerminalStyle(
                     fontSize: 11,
                     height: 1.0,
                     fontFamily: 'DejaVuSansMono',
                     fontFamilyFallback: _fontFallback,
                   ),
-                  onTapUp: _handleTap,
                 ),
-              ),
             ),
             TerminalToolbar(
               pty: _pty,
@@ -526,17 +439,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               padding: const EdgeInsets.all(16),
               child: SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: widget.isFirstRun
-                      ? _goToDashboard
-                      : () => Navigator.of(context).pop(),
-                  icon: Icon(widget.isFirstRun
-                      ? Icons.arrow_forward
-                      : Icons.check),
-                  label: Text(widget.isFirstRun
-                      ? 'Go to Dashboard'
-                      : 'Done'),
-                ),
+                child: widget.isFirstRun
+                    ? FilledButton.icon(
+                        onPressed: _goToDashboard,
+                        icon: const Icon(Icons.dashboard),
+                        label: const Text('Go to Dashboard'),
+                      )
+                    : FilledButton.icon(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.check),
+                        label: const Text('Done'),
+                      ),
               ),
             ),
         ],

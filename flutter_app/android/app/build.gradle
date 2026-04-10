@@ -34,9 +34,9 @@ def hasKeystore = keystoreProperties.containsKey('storeFile') &&
     file(keystoreProperties['storeFile']).exists()
 
 android {
-    namespace = "com.nxg.openclawproot"
-    compileSdk = 35
-    ndkVersion = flutter.ndkVersion
+    namespace = "com.nxg.hermesagentmobile"
+    compileSdk = 36
+    ndkVersion = "27.2.12479018"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -48,7 +48,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.nxg.openclawproot"
+        applicationId = "com.nxg.hermesagentmobile"
         minSdk = 29
         targetSdk = 36
         versionCode = flutterVersionCode.toInteger()

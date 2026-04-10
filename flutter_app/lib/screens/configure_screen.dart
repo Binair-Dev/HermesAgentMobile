@@ -6,11 +6,10 @@ import 'package:xterm/xterm.dart';
 import 'package:flutter_pty/flutter_pty.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/native_bridge.dart';
-import '../services/screenshot_service.dart';
 import '../services/terminal_service.dart';
 import '../widgets/terminal_toolbar.dart';
 
-/// Runs `openclaw configure` in a terminal so the user can manage
+/// Runs `hermes setup` in a terminal so the user can manage
 /// gateway settings. Accessible from the dashboard.
 class ConfigureScreen extends StatefulWidget {
   const ConfigureScreen({super.key});
@@ -28,7 +27,6 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
   String? _error;
   final _ctrlNotifier = ValueNotifier<bool>(false);
   final _altNotifier = ValueNotifier<bool>(false);
-  final _screenshotKey = GlobalKey();
   static final _anyUrlRegex = RegExp(r'https?://[^\s<>\[\]"' "'" r'\)]+');
   static final _boxDrawing = RegExp(r'[│┤├┬┴┼╮╯╰╭─╌╴╶┌┐└┘◇◆]+');
 
@@ -59,7 +57,6 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     _pty?.kill();
     _pty = null;
     try {
-      // Ensure dirs + resolv.conf exist before proot starts (#40).
       try { await NativeBridge.setupDirs(); } catch (_) {}
       try { await NativeBridge.writeResolv(); } catch (_) {}
       try {
@@ -70,7 +67,6 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
           Directory('$filesDir/config').createSync(recursive: true);
           resolvFile.writeAsStringSync(resolvContent);
         }
-        // Also write into rootfs /etc/ so DNS works even if bind-mount fails
         final rootfsResolv = File('$filesDir/rootfs/ubuntu/etc/resolv.conf');
         if (!rootfsResolv.existsSync()) {
           rootfsResolv.parent.createSync(recursive: true);
@@ -89,10 +85,10 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
       configureArgs.removeLast(); // remove '/bin/bash'
       configureArgs.addAll([
         '/bin/bash', '-lc',
-        'echo "=== OpenClaw Configure ===" && '
+        'echo "=== Hermes Agent Configure ===" && '
         'echo "Manage your gateway settings." && '
         'echo "" && '
-        'openclaw configure; '
+        'cd /root/hermes-agent && source venv/bin/activate && python -m hermes_cli.main setup; '
         'echo "" && echo "Configuration complete! You can close this screen."',
       ]);
 
@@ -249,34 +245,17 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     }
   }
 
-  Future<void> _takeScreenshot() async {
-    final path = await ScreenshotService.capture(_screenshotKey, prefix: 'configure');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(path != null
-            ? 'Screenshot saved: ${path.split('/').last}'
-            : 'Failed to capture screenshot'),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OpenClaw Configure'),
+        title: const Text('Hermes Agent Configure'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
         automaticallyImplyLeading: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined),
-            tooltip: 'Screenshot',
-            onPressed: _takeScreenshot,
-          ),
           IconButton(
             icon: const Icon(Icons.copy),
             tooltip: 'Copy',
@@ -348,17 +327,14 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
             )
           else ...[
             Expanded(
-              child: RepaintBoundary(
-                key: _screenshotKey,
-                child: TerminalView(
-                  _terminal,
-                  controller: _controller,
-                  textStyle: const TerminalStyle(
-                    fontSize: 11,
-                    height: 1.0,
-                    fontFamily: 'DejaVuSansMono',
-                    fontFamilyFallback: _fontFallback,
-                  ),
+              child: TerminalView(
+                _terminal,
+                controller: _controller,
+                textStyle: const TerminalStyle(
+                  fontSize: 11,
+                  height: 1.0,
+                  fontFamily: 'DejaVuSansMono',
+                  fontFamilyFallback: _fontFallback,
                 ),
               ),
             ),

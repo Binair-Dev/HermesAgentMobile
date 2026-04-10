@@ -3,5 +3,5 @@ import 'app.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const OpenClawApp());
+  runApp(const HermesAgentApp());
 }

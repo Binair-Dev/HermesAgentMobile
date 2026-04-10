@@ -2,9 +2,9 @@ enum SetupStep {
   checkingStatus,
   downloadingRootfs,
   extractingRootfs,
-  installingNode,
-  installingOpenClaw,
-  configuringBypass,
+  installingPython,
+  installingHermesAgent,
+  configuringEnvironment,
   complete,
   error,
 }
@@ -47,12 +47,12 @@ class SetupState {
         return 'Downloading Ubuntu rootfs';
       case SetupStep.extractingRootfs:
         return 'Extracting rootfs';
-      case SetupStep.installingNode:
-        return 'Installing Node.js';
-      case SetupStep.installingOpenClaw:
-        return 'Installing OpenClaw';
-      case SetupStep.configuringBypass:
-        return 'Configuring Bionic Bypass';
+      case SetupStep.installingPython:
+        return 'Installing Python';
+      case SetupStep.installingHermesAgent:
+        return 'Installing Hermes Agent';
+      case SetupStep.configuringEnvironment:
+        return 'Configuring environment';
       case SetupStep.complete:
         return 'Setup complete';
       case SetupStep.error:
@@ -68,11 +68,11 @@ class SetupState {
         return 1;
       case SetupStep.extractingRootfs:
         return 2;
-      case SetupStep.installingNode:
+      case SetupStep.installingPython:
         return 3;
-      case SetupStep.installingOpenClaw:
+      case SetupStep.installingHermesAgent:
         return 4;
-      case SetupStep.configuringBypass:
+      case SetupStep.configuringEnvironment:
         return 5;
       case SetupStep.complete:
         return 6;

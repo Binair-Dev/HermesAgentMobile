@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../app.dart';
 import '../providers/gateway_provider.dart';
-import '../services/screenshot_service.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
@@ -15,7 +14,6 @@ class LogsScreen extends StatefulWidget {
 class _LogsScreenState extends State<LogsScreen> {
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
-  final _screenshotKey = GlobalKey();
   bool _autoScroll = true;
   String _filter = '';
 
@@ -29,16 +27,10 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gateway Logs'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined),
-            tooltip: 'Screenshot',
-            onPressed: _takeScreenshot,
-          ),
           IconButton(
             icon: Icon(
               _autoScroll ? Icons.vertical_align_bottom : Icons.vertical_align_top,
@@ -48,25 +40,20 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.copy),
-            tooltip: 'Copy all logs',
-            onPressed: () => _copyLogs(context),
+            tooltip: 'Copy all',
+            onPressed: _copyAll,
           ),
         ],
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(12),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: 'Filter logs...',
                 prefixIcon: const Icon(Icons.search),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
                 suffixIcon: _filter.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
@@ -77,57 +64,54 @@ class _LogsScreenState extends State<LogsScreen> {
                       )
                     : null,
               ),
-              onChanged: (value) => setState(() => _filter = value),
+              onChanged: (value) => setState(() => _filter = value.toLowerCase()),
             ),
           ),
           Expanded(
-            child: RepaintBoundary(
-              key: _screenshotKey,
-              child: Consumer<GatewayProvider>(
+            child: Consumer<GatewayProvider>(
               builder: (context, provider, _) {
-                final logs = provider.state.logs;
+                final logs = provider.logs;
                 final filtered = _filter.isEmpty
                     ? logs
-                    : logs.where((l) =>
-                        l.toLowerCase().contains(_filter.toLowerCase())).toList();
+                    : logs.where((l) => l.toLowerCase().contains(_filter)).toList();
 
                 if (filtered.isEmpty) {
-                  return Center(
-                    child: Text(
-                      logs.isEmpty ? 'No logs yet. Start the gateway.' : 'No matching logs.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  );
+                  return const Center(child: Text('No logs yet'));
                 }
 
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_autoScroll && _scrollController.hasClients) {
-                    _scrollController.jumpTo(
+                if (_autoScroll && _scrollController.hasClients) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _scrollController.animateTo(
                       _scrollController.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
                     );
-                  }
-                });
+                  });
+                }
 
                 return ListView.builder(
                   controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final line = filtered[index];
-                    return Text(
+                    final isError = line.toLowerCase().contains('error');
+                    final isWarn = line.toLowerCase().contains('warn');
+                    return SelectableText(
                       line,
                       style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,
-                        color: _logColor(line, theme),
+                        color: isError
+                            ? theme.colorScheme.error
+                            : isWarn
+                                ? AppColors.statusAmber
+                                : theme.colorScheme.onSurface,
                       ),
                     );
                   },
                 );
               },
-            ),
             ),
           ),
         ],
@@ -135,37 +119,12 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
-  Color _logColor(String line, ThemeData theme) {
-    if (line.contains('[ERR]') || line.contains('ERROR')) {
-      return theme.colorScheme.error;
-    }
-    if (line.contains('[WARN]') || line.contains('WARNING')) {
-      return AppColors.statusAmber;
-    }
-    if (line.contains('[INFO]')) {
-      return AppColors.mutedText;
-    }
-    return theme.colorScheme.onSurface;
-  }
-
-  Future<void> _takeScreenshot() async {
-    final path = await ScreenshotService.capture(_screenshotKey, prefix: 'logs');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(path != null
-            ? 'Screenshot saved: ${path.split('/').last}'
-            : 'Failed to capture screenshot'),
-      ),
-    );
-  }
-
-  void _copyLogs(BuildContext context) {
+  void _copyAll() {
     final provider = context.read<GatewayProvider>();
-    final text = provider.state.logs.join('\n');
+    final text = provider.logs.join('\n');
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Logs copied to clipboard')),
+      const SnackBar(content: Text('All logs copied')),
     );
   }
 }

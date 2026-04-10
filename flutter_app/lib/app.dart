@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'providers/setup_provider.dart';
 import 'providers/gateway_provider.dart';
-import 'providers/node_provider.dart';
 import 'screens/splash_screen.dart';
 
 /// Centralized color palette for the entire app.
@@ -34,8 +33,8 @@ class AppColors {
   static const Color mutedText = Color(0xFF6B7280);
 }
 
-class OpenClawApp extends StatelessWidget {
-  const OpenClawApp({super.key});
+class HermesAgentApp extends StatelessWidget {
+  const HermesAgentApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -43,16 +42,9 @@ class OpenClawApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => SetupProvider()),
         ChangeNotifierProvider(create: (_) => GatewayProvider()),
-        ChangeNotifierProxyProvider<GatewayProvider, NodeProvider>(
-          create: (_) => NodeProvider(),
-          update: (_, gatewayProvider, nodeProvider) {
-            nodeProvider!.onGatewayStateChanged(gatewayProvider.state);
-            return nodeProvider;
-          },
-        ),
       ],
       child: MaterialApp(
-        title: 'OpenClaw',
+        title: 'Hermes Agent',
         debugShowCheckedModeBanner: false,
         theme: _buildLightTheme(),
         darkTheme: _buildDarkTheme(),
@@ -95,7 +87,7 @@ class OpenClawApp extends StatelessWidget {
           color: Colors.white,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         color: AppColors.darkSurface,
         shape: RoundedRectangleBorder(
@@ -165,7 +157,7 @@ class OpenClawApp extends StatelessWidget {
         color: AppColors.darkBorder,
         space: 1,
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: AppColors.darkSurface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -226,7 +218,7 @@ class OpenClawApp extends StatelessWidget {
           color: const Color(0xFF0A0A0A),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         color: AppColors.lightBg,
         shape: RoundedRectangleBorder(
@@ -296,7 +288,7 @@ class OpenClawApp extends StatelessWidget {
         color: AppColors.lightBorder,
         space: 1,
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: AppColors.lightBg,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),

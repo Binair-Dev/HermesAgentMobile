@@ -1,12 +1,12 @@
 #!/bin/bash
-# Build the OpenClaw Flutter APK
+# Build the Hermes Agent Flutter APK
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/.."
 FLUTTER_DIR="$PROJECT_DIR/flutter_app"
 
-echo "=== OpenClaw APK Build ==="
+echo "=== Hermes Agent APK Build ==="
 echo ""
 
 # Step 1: Fetch proot binaries if not present

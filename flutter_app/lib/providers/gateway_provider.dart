@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/gateway_state.dart';
 import '../services/gateway_service.dart' as svc;
 
@@ -9,6 +9,21 @@ class GatewayProvider extends ChangeNotifier {
   GatewayState _state = const GatewayState();
 
   GatewayState get state => _state;
+  bool get isRunning => _state.isRunning;
+  List<String> get logs => _state.logs;
+  String get statusLabel => _state.statusText;
+  Color get statusColor {
+    switch (_state.status) {
+      case GatewayStatus.running:
+        return Colors.green;
+      case GatewayStatus.starting:
+        return Colors.orange;
+      case GatewayStatus.error:
+        return Colors.red;
+      case GatewayStatus.stopped:
+        return Colors.grey;
+    }
+  }
 
   GatewayProvider() {
     _subscription = _gatewayService.stateStream.listen((state) {

@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'Hermes Agent';
-  static const String version = '0.1.8';
+  static const String version = '0.1.9';
   static const String packageName = 'com.nxg.hermesagentmobile';
 
   /// Matches ANSI escape sequences (e.g. color codes in terminal output).

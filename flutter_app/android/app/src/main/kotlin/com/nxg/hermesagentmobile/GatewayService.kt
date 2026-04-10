@@ -214,9 +214,50 @@ class GatewayService : Service() {
                 try {
                     pm.runInProotSync(
                         "cat > /root/gateway_replace.py << 'PYEOF'\n" +
-                        "import asyncio, sys\n" +
+                        "import asyncio, sys, os, signal, glob, time\n" +
                         "sys.path.insert(0, '/root/hermes-agent')\n" +
                         "from gateway.run import start_gateway\n" +
+                        "from gateway.status import get_running_pid, terminate_pid, remove_pid_file, release_all_scoped_locks\n" +
+                        "\n" +
+                        "def kill_survivors():\n" +
+                        "    my_pid = os.getpid()\n" +
+                        "    pid = get_running_pid()\n" +
+                        "    if pid and pid != my_pid:\n" +
+                        "        try:\n" +
+                        "            terminate_pid(pid, force=True)\n" +
+                        "        except Exception:\n" +
+                        "            try:\n" +
+                        "                os.kill(pid, signal.SIGKILL)\n" +
+                        "            except Exception:\n" +
+                        "                pass\n" +
+                        "        for _ in range(20):\n" +
+                        "            try:\n" +
+                        "                os.kill(pid, 0)\n" +
+                        "                time.sleep(0.3)\n" +
+                        "            except (ProcessLookupError, PermissionError):\n" +
+                        "                break\n" +
+                        "    remove_pid_file()\n" +
+                        "    for proc_dir in glob.glob('/proc/[0-9]*/'):\n" +
+                        "        try:\n" +
+                        "            pid = int(os.path.basename(proc_dir.rstrip('/')))\n" +
+                        "            if pid == my_pid or pid <= 1:\n" +
+                        "                continue\n" +
+                        "            with open(os.path.join(proc_dir, 'cmdline'), 'rb') as f:\n" +
+                        "                cmdline = f.read().replace(b'\\x00', b' ').decode('utf-8', 'replace')\n" +
+                        "            if 'gateway/run.py' in cmdline or 'gateway_replace.py' in cmdline:\n" +
+                        "                try:\n" +
+                        "                    os.kill(pid, signal.SIGKILL)\n" +
+                        "                except (ProcessLookupError, PermissionError):\n" +
+                        "                    pass\n" +
+                        "        except (ValueError, FileNotFoundError, PermissionError):\n" +
+                        "            continue\n" +
+                        "    time.sleep(0.5)\n" +
+                        "    try:\n" +
+                        "        release_all_scoped_locks()\n" +
+                        "    except Exception:\n" +
+                        "        pass\n" +
+                        "\n" +
+                        "kill_survivors()\n" +
                         "success = asyncio.run(start_gateway(replace=True))\n" +
                         "sys.exit(0 if success else 1)\n" +
                         "PYEOF"
